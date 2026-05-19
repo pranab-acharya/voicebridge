@@ -30,15 +30,16 @@ class VoiceBridgeService : Service() {
 
         const val ACTION_STATUS = "com.voicebridge.STATUS"
         const val ACTION_STOP   = "com.voicebridge.STOP"
+
+        // Static flag so MainActivity can read state instantly on resume
+        @Volatile var isRunning = false
     }
 
-    // Stats tracked across a call
     private val txFrames = AtomicInteger(0)
     private val txBytes  = AtomicLong(0L)
-    private var callStartMs = 0L
+    private var callStartMs      = 0L
     private var activeCallNumber = ""
 
-    // Wraps the real queue to count outgoing frames
     private val encodedQueue = object : LinkedBlockingQueue<ByteArray>(256) {
         override fun offer(e: ByteArray): Boolean {
             val accepted = super.offer(e)
@@ -50,12 +51,12 @@ class VoiceBridgeService : Service() {
         }
     }
 
-    private var captureThread:  AudioCaptureThread? = null
-    private var encoderThread:  OpusEncoderThread?  = null
-    private var usbWriteThread: UsbWriteThread?     = null
+    private var captureThread:  AudioCaptureThread?  = null
+    private var encoderThread:  OpusEncoderThread?   = null
+    private var usbWriteThread: UsbWriteThread?      = null
     private var usbManager:     UsbAccessoryManager? = null
-    private var tcpServer:      DebugTcpServer?     = null
-    private var callReceiver:   CallStateReceiver?  = null
+    private var tcpServer:      DebugTcpServer?      = null
+    private var callReceiver:   CallStateReceiver?   = null
     private var wakeLock:       PowerManager.WakeLock? = null
 
     private var capturing = false
@@ -63,7 +64,7 @@ class VoiceBridgeService : Service() {
     private val statusHandler = Handler(Looper.getMainLooper())
     private val statusTick = object : Runnable {
         override fun run() {
-            broadcastStatus()
+            broadcastStatus(running = true)
             statusHandler.postDelayed(this, 1_000L)
         }
     }
@@ -72,6 +73,7 @@ class VoiceBridgeService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        isRunning = true
         createNotificationChannel()
         NativeBridge.initRingBuffer()
 
@@ -82,7 +84,7 @@ class VoiceBridgeService : Service() {
         if (BuildConfig.DEBUG) startTcpServer()
         registerCallReceiver()
 
-        statusHandler.postDelayed(statusTick, 1_000L)
+        statusHandler.post(statusTick)
         Log.i(TAG, "Service created")
     }
 
@@ -99,7 +101,10 @@ class VoiceBridgeService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        isRunning = false
         statusHandler.removeCallbacks(statusTick)
+        // Send a final broadcast so the UI reacts immediately
+        broadcastStatus(running = false)
         stopCapture()
         usbWriteThread?.stopWriting()
         usbManager?.release()
@@ -113,18 +118,19 @@ class VoiceBridgeService : Service() {
 
     // ── Status broadcast ───────────────────────────────────────────────────────
 
-    private fun broadcastStatus() {
+    private fun broadcastStatus(running: Boolean) {
         val durationSec = if (capturing && callStartMs > 0)
             (System.currentTimeMillis() - callStartMs) / 1000L else 0L
 
         sendBroadcast(Intent(ACTION_STATUS).apply {
-            putExtra("call_active",    capturing)
-            putExtra("number",         activeCallNumber)
-            putExtra("duration_s",     durationSec)
-            putExtra("tx_frames",      txFrames.get())
-            putExtra("tx_bytes",       txBytes.get())
-            putExtra("usb_connected",  usbManager?.isConnected ?: false)
-            putExtra("tcp_connected",  tcpServer?.hasClient ?: false)
+            putExtra("service_running", running)
+            putExtra("call_active",     capturing)
+            putExtra("number",          activeCallNumber)
+            putExtra("duration_s",      durationSec)
+            putExtra("tx_frames",       txFrames.get())
+            putExtra("tx_bytes",        txBytes.get())
+            putExtra("usb_connected",   usbManager?.isConnected ?: false)
+            putExtra("tcp_connected",   tcpServer?.hasClient ?: false)
         })
     }
 
@@ -180,7 +186,6 @@ class VoiceBridgeService : Service() {
         captureThread = AudioCaptureThread {
             Log.w(TAG, "Ring buffer overflow — frame dropped")
         }.also { it.start() }
-
         encoderThread = OpusEncoderThread(encodedQueue).also { it.start() }
 
         capturing = true
@@ -213,10 +218,9 @@ class VoiceBridgeService : Service() {
     // ── Telephony ──────────────────────────────────────────────────────────────
 
     private fun dialNumber(number: String) {
-        val intent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$number")).apply {
+        startActivity(Intent(Intent.ACTION_CALL, Uri.parse("tel:$number")).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-        startActivity(intent)
+        })
     }
 
     private fun hangup() {

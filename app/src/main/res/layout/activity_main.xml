@@ -459,32 +459,15 @@
                     android:letterSpacing="0.1"
                     android:layout_marginBottom="12dp"/>
 
-                <LinearLayout
+                <Button
+                    android:id="@+id/btnToggleService"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal">
-
-                    <Button
-                        android:id="@+id/btnStartService"
-                        android:layout_width="0dp"
-                        android:layout_height="48dp"
-                        android:layout_weight="1"
-                        android:text="Start Service"
-                        android:textColor="@android:color/white"
-                        android:background="@drawable/bg_btn_primary"
-                        android:layout_marginEnd="8dp"
-                        style="?android:attr/borderlessButtonStyle"/>
-
-                    <Button
-                        android:id="@+id/btnStopService"
-                        android:layout_width="0dp"
-                        android:layout_height="48dp"
-                        android:layout_weight="1"
-                        android:text="Stop Service"
-                        android:textColor="@android:color/white"
-                        android:background="@drawable/bg_btn_danger"
-                        style="?android:attr/borderlessButtonStyle"/>
-                </LinearLayout>
+                    android:layout_height="52dp"
+                    android:text="Stop Service"
+                    android:textColor="@android:color/white"
+                    android:textSize="15sp"
+                    android:background="@drawable/bg_btn_primary"
+                    style="?android:attr/borderlessButtonStyle"/>
 
                 <Button
                     android:id="@+id/btnBattery"

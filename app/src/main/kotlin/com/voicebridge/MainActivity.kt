@@ -12,7 +12,6 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import android.view.View
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -38,7 +37,16 @@ class MainActivity : AppCompatActivity() {
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action != VoiceBridgeService.ACTION_STATUS) return
-            updateUi(intent)
+            applyStatus(
+                serviceRunning = intent.getBooleanExtra("service_running", false),
+                callActive     = intent.getBooleanExtra("call_active", false),
+                usbConn        = intent.getBooleanExtra("usb_connected", false),
+                tcpConn        = intent.getBooleanExtra("tcp_connected", false),
+                number         = intent.getStringExtra("number") ?: "",
+                durationSec    = intent.getLongExtra("duration_s", 0L),
+                txFrames       = intent.getIntExtra("tx_frames", 0),
+                txBytes        = intent.getLongExtra("tx_bytes", 0L),
+            )
         }
     }
 
@@ -49,35 +57,26 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        binding.btnStartService.setOnClickListener {
-            startVoiceBridgeService()
-            Toast.makeText(this, "Service started", Toast.LENGTH_SHORT).show()
-        }
-        binding.btnStopService.setOnClickListener {
-            val stopIntent = Intent(this, VoiceBridgeService::class.java).apply {
-                action = VoiceBridgeService.ACTION_STOP
-            }
-            startService(stopIntent)
-            setDot(binding.dotService, false)
-            binding.tvServiceStatus.text = "Service stopped"
-            Toast.makeText(this, "Service stopped", Toast.LENGTH_SHORT).show()
-        }
+        binding.btnToggleService.setOnClickListener { toggleService() }
         binding.btnBattery.setOnClickListener { openBatterySettings() }
 
         requestMissingPermissions()
-        startVoiceBridgeService()
-        refreshPermissionDots()
+        // Auto-start on first launch if not already running
+        if (!VoiceBridgeService.isRunning) startVoiceBridgeService()
     }
 
     override fun onResume() {
         super.onResume()
+        // Sync immediately from static flag — no waiting for first broadcast
+        syncFromStaticFlag()
+        refreshPermissionDots()
+
         val filter = IntentFilter(VoiceBridgeService.ACTION_STATUS)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
             registerReceiver(statusReceiver, filter, RECEIVER_NOT_EXPORTED)
         else
             @Suppress("UnspecifiedRegisterReceiverFlag")
             registerReceiver(statusReceiver, filter)
-        refreshPermissionDots()
     }
 
     override fun onPause() {
@@ -85,19 +84,61 @@ class MainActivity : AppCompatActivity() {
         try { unregisterReceiver(statusReceiver) } catch (_: Exception) {}
     }
 
-    // ── UI update from service broadcast ──────────────────────────────────────
+    // ── Toggle ─────────────────────────────────────────────────────────────────
 
-    private fun updateUi(intent: Intent) {
-        val callActive  = intent.getBooleanExtra("call_active", false)
-        val usbConn     = intent.getBooleanExtra("usb_connected", false)
-        val tcpConn     = intent.getBooleanExtra("tcp_connected", false)
-        val number      = intent.getStringExtra("number") ?: ""
-        val durationSec = intent.getLongExtra("duration_s", 0L)
-        val txFrames    = intent.getIntExtra("tx_frames", 0)
-        val txBytes     = intent.getLongExtra("tx_bytes", 0L)
+    private fun toggleService() {
+        if (VoiceBridgeService.isRunning) {
+            startService(Intent(this, VoiceBridgeService::class.java).apply {
+                action = VoiceBridgeService.ACTION_STOP
+            })
+        } else {
+            startVoiceBridgeService()
+        }
+    }
 
-        setDot(binding.dotService, true)
-        binding.tvServiceStatus.text = if (callActive) "Capturing call audio" else "Ready — waiting for call"
+    private fun startVoiceBridgeService() {
+        val intent = Intent(this, VoiceBridgeService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+            startForegroundService(intent)
+        else
+            startService(intent)
+    }
+
+    // ── State sync ─────────────────────────────────────────────────────────────
+
+    private fun syncFromStaticFlag() {
+        val running = VoiceBridgeService.isRunning
+        binding.btnToggleService.text = if (running) "Stop Service" else "Start Service"
+        setDot(binding.dotService, running)
+        binding.tvServiceStatus.text = if (running) "Running" else "Stopped"
+        if (!running) {
+            // Clear transport dots immediately when service is known stopped
+            setDot(binding.dotUsb, false)
+            setDot(binding.dotTcp, false)
+            binding.tvUsbStatus.text = "Disconnected"
+            binding.tvTcpStatus.text = "No client"
+            binding.cardCall.visibility = View.GONE
+        }
+    }
+
+    private fun applyStatus(
+        serviceRunning: Boolean,
+        callActive: Boolean,
+        usbConn: Boolean,
+        tcpConn: Boolean,
+        number: String,
+        durationSec: Long,
+        txFrames: Int,
+        txBytes: Long,
+    ) {
+        binding.btnToggleService.text = if (serviceRunning) "Stop Service" else "Start Service"
+
+        setDot(binding.dotService, serviceRunning)
+        binding.tvServiceStatus.text = when {
+            !serviceRunning -> "Stopped"
+            callActive      -> "Capturing call audio"
+            else            -> "Ready — waiting for call"
+        }
 
         setDot(binding.dotUsb, usbConn)
         binding.tvUsbStatus.text = if (usbConn) "Connected" else "Disconnected"
@@ -147,14 +188,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────
-
-    private fun startVoiceBridgeService() {
-        val intent = Intent(this, VoiceBridgeService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-            startForegroundService(intent)
-        else
-            startService(intent)
-    }
 
     private fun openBatterySettings() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
