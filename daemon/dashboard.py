@@ -320,7 +320,7 @@ def main():
     if args.no_transcribe:
         transcriber = _NoopTranscriber()
     else:
-        con.print(f"[cyan]Loading Whisper [{args.model}] on {args.device}…[/]")
+        con.print(f"[cyan]Loading Whisper model=[bold]{args.model}[/bold] on {args.device}…[/]")
         from audio.transcriber import StreamingTranscriber
         def _on_transcript(text):
             with state.lock:

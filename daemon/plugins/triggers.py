@@ -1,4 +1,4 @@
-"""
+r"""
 Keyword / regex trigger system.
 
 Usage:
