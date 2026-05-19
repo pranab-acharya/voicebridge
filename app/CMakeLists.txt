@@ -23,6 +23,8 @@ FetchContent_MakeAvailable(opus)
 # Both are guaranteed on Android API 26+.
 if(TARGET opus)
     target_compile_definitions(opus PRIVATE HAVE_LRINT=1 HAVE_LRINTF=1)
+    # celt_neon_intr.c:208 has a missing forward declaration in v1.3.1 (fixed upstream)
+    target_compile_options(opus PRIVATE $<$<COMPILE_LANGUAGE:C>:-Wno-implicit-function-declaration>)
 endif()
 
 # Strip -ffast-math from opus targets — it refuses to build with it unless

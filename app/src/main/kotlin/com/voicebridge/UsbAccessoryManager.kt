@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.hardware.usb.UsbAccessory
 import android.hardware.usb.UsbManager
+import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import java.io.FileInputStream
@@ -30,7 +31,11 @@ class UsbAccessoryManager(private val ctx: Context) {
         override fun onReceive(c: Context, intent: Intent) {
             if (intent.action != ACTION_PERMISSION) return
             val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
-            val acc     = intent.getParcelableExtra<UsbAccessory>(UsbManager.EXTRA_ACCESSORY)
+            val acc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+                intent.getParcelableExtra(UsbManager.EXTRA_ACCESSORY, UsbAccessory::class.java)
+            else
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra<UsbAccessory>(UsbManager.EXTRA_ACCESSORY)
             if (granted && acc != null) openAccessory(acc)
             else Log.w(TAG, "USB permission denied")
         }

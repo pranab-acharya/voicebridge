@@ -145,6 +145,8 @@ class VoiceBridgeService : Service() {
 
     private fun hangup() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            // endCall() deprecated API 28 but no public replacement for non-default-dialer apps
+            @Suppress("DEPRECATION")
             (getSystemService(Context.TELECOM_SERVICE) as TelecomManager).endCall()
         }
     }

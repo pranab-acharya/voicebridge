@@ -20,7 +20,9 @@ class CallStateReceiver(
         if (intent.action != TelephonyManager.ACTION_PHONE_STATE_CHANGED) return
 
         val stateStr = intent.getStringExtra(TelephonyManager.EXTRA_STATE) ?: return
-        val number   = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER) ?: ""
+        // EXTRA_INCOMING_NUMBER deprecated in API 29; no public replacement for broadcast receivers
+        @Suppress("DEPRECATION")
+        val number = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER) ?: ""
 
         val state = when (stateStr) {
             TelephonyManager.EXTRA_STATE_RINGING  -> TelephonyManager.CALL_STATE_RINGING
