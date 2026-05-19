@@ -1,56 +1,54 @@
-#ifndef RING_BUFFER_H
-#define RING_BUFFER_H
-
-#include <stdint.h>
-#include <stdbool.h>
-#include <stdatomic.h>
-#include <string.h>
+#pragma once
 
 // Lock-free SPSC ring buffer — 32 slots × 320 samples × 2 bytes = 20 KB
+// Written in C++11 atomics so it compiles cleanly from a C++ TU.
+
+#include <atomic>
+#include <cstdint>
+#include <cstring>
+
 #define RING_SLOTS        32
 #define SAMPLES_PER_FRAME 320
 #define BYTES_PER_SAMPLE  2
 #define FRAME_BYTES       (SAMPLES_PER_FRAME * BYTES_PER_SAMPLE)
 
-typedef struct {
+struct RingFrame {
     uint8_t data[FRAME_BYTES];
-} RingFrame;
+};
 
-typedef struct {
-    RingFrame        frames[RING_SLOTS];
-    _Atomic uint32_t write_pos;
-    _Atomic uint32_t read_pos;
-} RingBuffer;
+struct RingBuffer {
+    RingFrame frames[RING_SLOTS];
+    std::atomic<uint32_t> write_pos{0};
+    std::atomic<uint32_t> read_pos{0};
+};
 
-static inline void ring_buffer_init(RingBuffer *rb) {
-    atomic_init(&rb->write_pos, 0u);
-    atomic_init(&rb->read_pos,  0u);
+inline void ring_buffer_init(RingBuffer *rb) {
+    rb->write_pos.store(0, std::memory_order_relaxed);
+    rb->read_pos.store(0,  std::memory_order_relaxed);
 }
 
 // Called from producer thread only
-static inline bool ring_buffer_write(RingBuffer *rb, const int16_t *samples) {
-    uint32_t wp = atomic_load_explicit(&rb->write_pos, memory_order_relaxed);
-    uint32_t rp = atomic_load_explicit(&rb->read_pos,  memory_order_acquire);
+inline bool ring_buffer_write(RingBuffer *rb, const int16_t *samples) {
+    uint32_t wp = rb->write_pos.load(std::memory_order_relaxed);
+    uint32_t rp = rb->read_pos.load(std::memory_order_acquire);
     if (wp - rp >= RING_SLOTS) return false;  // full
     memcpy(rb->frames[wp % RING_SLOTS].data, samples, FRAME_BYTES);
-    atomic_store_explicit(&rb->write_pos, wp + 1u, memory_order_release);
+    rb->write_pos.store(wp + 1u, std::memory_order_release);
     return true;
 }
 
 // Called from consumer thread only
-static inline bool ring_buffer_read(RingBuffer *rb, int16_t *out) {
-    uint32_t rp = atomic_load_explicit(&rb->read_pos,  memory_order_relaxed);
-    uint32_t wp = atomic_load_explicit(&rb->write_pos, memory_order_acquire);
+inline bool ring_buffer_read(RingBuffer *rb, int16_t *out) {
+    uint32_t rp = rb->read_pos.load(std::memory_order_relaxed);
+    uint32_t wp = rb->write_pos.load(std::memory_order_acquire);
     if (rp == wp) return false;  // empty
     memcpy(out, rb->frames[rp % RING_SLOTS].data, FRAME_BYTES);
-    atomic_store_explicit(&rb->read_pos, rp + 1u, memory_order_release);
+    rb->read_pos.store(rp + 1u, std::memory_order_release);
     return true;
 }
 
-static inline uint32_t ring_buffer_available(RingBuffer *rb) {
-    uint32_t wp = atomic_load_explicit(&rb->write_pos, memory_order_acquire);
-    uint32_t rp = atomic_load_explicit(&rb->read_pos,  memory_order_acquire);
+inline uint32_t ring_buffer_available(RingBuffer *rb) {
+    uint32_t wp = rb->write_pos.load(std::memory_order_acquire);
+    uint32_t rp = rb->read_pos.load(std::memory_order_acquire);
     return wp - rp;
 }
-
-#endif  // RING_BUFFER_H

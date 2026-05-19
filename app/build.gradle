@@ -16,8 +16,8 @@ android {
 
         externalNativeBuild {
             cmake {
-                cppFlags "-std=c++17 -O2 -ffast-math"
-                cFlags "-O2 -ffast-math"
+                cppFlags "-std=c++17 -O2"
+                cFlags "-O2"
                 arguments "-DANDROID_STL=c++_shared",
                           "-DANDROID_ARM_NEON=ON"
             }
