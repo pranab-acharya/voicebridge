@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Audio capture -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <!-- Call state monitoring -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE"/>
+    <!-- Dial from laptop command -->
+    <uses-permission android:name="android.permission.CALL_PHONE"/>
+    <!-- Answer / end call -->
+    <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS"/>
+    <!-- Foreground service -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
+    <!-- Auto-start on boot -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <!-- Battery optimization exemption prompt -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+    <!-- Keep CPU alive during call -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+
+    <uses-feature android:name="android.hardware.usb.accessory"/>
+
+    <application
+        android:label="@string/app_name"
+        android:theme="@style/Theme.VoiceBridge"
+        android:allowBackup="false"
+        android:exported="false">
+
+        <!-- Main launcher + USB accessory attach entry-point -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+            <!-- System launches this activity when the AOAv2 laptop daemon connects -->
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_ACCESSORY_ATTACHED"
+                android:resource="@xml/usb_accessory_filter"/>
+        </activity>
+
+        <service
+            android:name=".VoiceBridgeService"
+            android:exported="false"
+            android:foregroundServiceType="microphone"
+            android:stopWithTask="false"/>
+
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
+
+    </application>
+</manifest>

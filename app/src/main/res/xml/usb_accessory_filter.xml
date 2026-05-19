@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Matches the laptop daemon when it identifies itself as an AOAv2 accessory.
+     The daemon must send these exact strings during the AOA handshake. -->
+<resources>
+    <usb-accessory
+        manufacturer="VoiceBridge"
+        model="LaptopDaemon"
+        version="1.0"/>
+</resources>
