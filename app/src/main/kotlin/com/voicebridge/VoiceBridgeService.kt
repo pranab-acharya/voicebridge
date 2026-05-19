@@ -29,6 +29,7 @@ class VoiceBridgeService : Service() {
         private const val COMPLEXITY  = 3
 
         const val ACTION_STATUS = "com.voicebridge.STATUS"
+        const val ACTION_STOP   = "com.voicebridge.STOP"
     }
 
     // Stats tracked across a call
@@ -86,6 +87,11 @@ class VoiceBridgeService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return START_NOT_STICKY
+        }
         startForeground(NOTIF_ID, buildNotification("Ready — waiting for call"))
         return START_STICKY
     }

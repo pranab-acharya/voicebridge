@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import android.view.View
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -48,8 +49,19 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        binding.btnStartService.setOnClickListener { startVoiceBridgeService() }
-        binding.btnStopService.setOnClickListener { stopService(Intent(this, VoiceBridgeService::class.java)) }
+        binding.btnStartService.setOnClickListener {
+            startVoiceBridgeService()
+            Toast.makeText(this, "Service started", Toast.LENGTH_SHORT).show()
+        }
+        binding.btnStopService.setOnClickListener {
+            val stopIntent = Intent(this, VoiceBridgeService::class.java).apply {
+                action = VoiceBridgeService.ACTION_STOP
+            }
+            startService(stopIntent)
+            setDot(binding.dotService, false)
+            binding.tvServiceStatus.text = "Service stopped"
+            Toast.makeText(this, "Service stopped", Toast.LENGTH_SHORT).show()
+        }
         binding.btnBattery.setOnClickListener { openBatterySettings() }
 
         requestMissingPermissions()
