@@ -18,6 +18,13 @@ set(OPUS_FLOAT_APPROX    ON  CACHE BOOL "" FORCE)
 
 FetchContent_MakeAvailable(opus)
 
+# lrint/lrintf exist in the NDK but cmake's check_function_exists misses them
+# during cross-compilation, causing float_cast.h to emit a #warning fallback.
+# Both are guaranteed on Android API 26+.
+if(TARGET opus)
+    target_compile_definitions(opus PRIVATE HAVE_LRINT=1 HAVE_LRINTF=1)
+endif()
+
 # Strip -ffast-math from opus targets — it refuses to build with it unless
 # FLOAT_APPROX is also defined, which changes codec behaviour.
 foreach(_t opus celt silk)
