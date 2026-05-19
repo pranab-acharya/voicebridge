@@ -70,7 +70,8 @@ class UsbAccessoryManager(private val ctx: Context) {
     }
 
     private fun launchControlReader() {
-        Thread("UsbControlReader") {
+        // Thread(String, Runnable) is Java 19+; use Thread(group, runnable, name) instead
+        Thread(null, {
             val buf = ByteArray(512)
             while (true) {
                 try {
@@ -83,7 +84,7 @@ class UsbAccessoryManager(private val ctx: Context) {
                     break
                 }
             }
-        }.also { it.isDaemon = true }.start()
+        }, "UsbControlReader").also { it.isDaemon = true }.start()
     }
 
     fun getOutputStream(): FileOutputStream? = output
