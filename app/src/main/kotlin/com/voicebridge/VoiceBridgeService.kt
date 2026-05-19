@@ -31,6 +31,7 @@ class VoiceBridgeService : Service() {
     private var encoderThread:  OpusEncoderThread?  = null
     private var usbWriteThread: UsbWriteThread?     = null
     private var usbManager:     UsbAccessoryManager? = null
+    private var tcpServer:      DebugTcpServer?     = null   // ADB-forward test transport
     private var callReceiver:   CallStateReceiver?  = null
     private var wakeLock:       PowerManager.WakeLock? = null
 
@@ -48,6 +49,7 @@ class VoiceBridgeService : Service() {
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "VoiceBridge::WakeLock")
 
         setupUsb()
+        if (BuildConfig.DEBUG) startTcpServer()
         registerCallReceiver()
 
         Log.i(TAG, "Service created")
@@ -64,11 +66,19 @@ class VoiceBridgeService : Service() {
         stopCapture()
         usbWriteThread?.stopWriting()
         usbManager?.release()
+        tcpServer?.stopServer()
         callReceiver?.let { try { unregisterReceiver(it) } catch (_: Exception) {} }
         wakeLock?.let { if (it.isHeld) it.release() }
         NativeBridge.destroyEncoder()
         Log.i(TAG, "Service destroyed")
         super.onDestroy()
+    }
+
+    // ── TCP debug server (debug builds + ADB forward) ─────────────────────────
+
+    private fun startTcpServer() {
+        tcpServer = DebugTcpServer(port = 7654, encodedQueue = encodedQueue).also { it.start() }
+        Log.i(TAG, "TCP debug server started on port 7654")
     }
 
     // ── Setup ──────────────────────────────────────────────────────────────────
@@ -88,7 +98,11 @@ class VoiceBridgeService : Service() {
     private fun registerCallReceiver() {
         callReceiver = CallStateReceiver(
             onCallStarted = { number -> startCapture(number) },
-            onCallEnded   = { stopCapture(); usbWriteThread?.sendCallEnd() },
+            onCallEnded   = {
+                stopCapture()
+                usbWriteThread?.sendCallEnd()
+                tcpServer?.sendPacket(PacketProtocol.buildCallEnd(0))
+            },
             onCallHeld    = { pauseCapture() }
         )
         registerReceiver(callReceiver, IntentFilter(TelephonyManager.ACTION_PHONE_STATE_CHANGED))
@@ -102,6 +116,7 @@ class VoiceBridgeService : Service() {
             Log.e(TAG, "initEncoder failed"); return
         }
         usbWriteThread?.sendCallStart(number)
+        tcpServer?.sendPacket(PacketProtocol.buildCallStart(0, number))
 
         captureThread = AudioCaptureThread {
             Log.w(TAG, "Ring buffer overflow — frame dropped")
