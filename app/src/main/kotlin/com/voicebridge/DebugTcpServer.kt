@@ -31,6 +31,8 @@ class DebugTcpServer(
     private var serverSocket: ServerSocket? = null
     private var activeStream: OutputStream? = null
 
+    val hasClient: Boolean get() = activeStream != null
+
     override fun run() {
         running.set(true)
         try {

@@ -6,13 +6,17 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import android.telecom.TelecomManager
 import android.telephony.TelephonyManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 class VoiceBridgeService : Service() {
 
@@ -23,26 +27,51 @@ class VoiceBridgeService : Service() {
         private const val SAMPLE_RATE = 16_000
         private const val BITRATE     = 16_000
         private const val COMPLEXITY  = 3
+
+        const val ACTION_STATUS = "com.voicebridge.STATUS"
     }
 
-    private val encodedQueue = LinkedBlockingQueue<ByteArray>(256)
+    // Stats tracked across a call
+    private val txFrames = AtomicInteger(0)
+    private val txBytes  = AtomicLong(0L)
+    private var callStartMs = 0L
+    private var activeCallNumber = ""
+
+    // Wraps the real queue to count outgoing frames
+    private val encodedQueue = object : LinkedBlockingQueue<ByteArray>(256) {
+        override fun offer(e: ByteArray): Boolean {
+            val accepted = super.offer(e)
+            if (accepted) {
+                txFrames.incrementAndGet()
+                txBytes.addAndGet(e.size.toLong())
+            }
+            return accepted
+        }
+    }
 
     private var captureThread:  AudioCaptureThread? = null
     private var encoderThread:  OpusEncoderThread?  = null
     private var usbWriteThread: UsbWriteThread?     = null
     private var usbManager:     UsbAccessoryManager? = null
-    private var tcpServer:      DebugTcpServer?     = null   // ADB-forward test transport
+    private var tcpServer:      DebugTcpServer?     = null
     private var callReceiver:   CallStateReceiver?  = null
     private var wakeLock:       PowerManager.WakeLock? = null
 
     private var capturing = false
+
+    private val statusHandler = Handler(Looper.getMainLooper())
+    private val statusTick = object : Runnable {
+        override fun run() {
+            broadcastStatus()
+            statusHandler.postDelayed(this, 1_000L)
+        }
+    }
 
     // ── Lifecycle ──────────────────────────────────────────────────────────────
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-
         NativeBridge.initRingBuffer()
 
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -52,6 +81,7 @@ class VoiceBridgeService : Service() {
         if (BuildConfig.DEBUG) startTcpServer()
         registerCallReceiver()
 
+        statusHandler.postDelayed(statusTick, 1_000L)
         Log.i(TAG, "Service created")
     }
 
@@ -63,6 +93,7 @@ class VoiceBridgeService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        statusHandler.removeCallbacks(statusTick)
         stopCapture()
         usbWriteThread?.stopWriting()
         usbManager?.release()
@@ -74,7 +105,24 @@ class VoiceBridgeService : Service() {
         super.onDestroy()
     }
 
-    // ── TCP debug server (debug builds + ADB forward) ─────────────────────────
+    // ── Status broadcast ───────────────────────────────────────────────────────
+
+    private fun broadcastStatus() {
+        val durationSec = if (capturing && callStartMs > 0)
+            (System.currentTimeMillis() - callStartMs) / 1000L else 0L
+
+        sendBroadcast(Intent(ACTION_STATUS).apply {
+            putExtra("call_active",    capturing)
+            putExtra("number",         activeCallNumber)
+            putExtra("duration_s",     durationSec)
+            putExtra("tx_frames",      txFrames.get())
+            putExtra("tx_bytes",       txBytes.get())
+            putExtra("usb_connected",  usbManager?.isConnected ?: false)
+            putExtra("tcp_connected",  tcpServer?.hasClient ?: false)
+        })
+    }
+
+    // ── TCP debug server ───────────────────────────────────────────────────────
 
     private fun startTcpServer() {
         tcpServer = DebugTcpServer(port = 7654, encodedQueue = encodedQueue).also { it.start() }
@@ -115,6 +163,11 @@ class VoiceBridgeService : Service() {
         if (!NativeBridge.initEncoder(SAMPLE_RATE, BITRATE, COMPLEXITY)) {
             Log.e(TAG, "initEncoder failed"); return
         }
+        txFrames.set(0)
+        txBytes.set(0L)
+        callStartMs = System.currentTimeMillis()
+        activeCallNumber = number
+
         usbWriteThread?.sendCallStart(number)
         tcpServer?.sendPacket(PacketProtocol.buildCallStart(0, number))
 
@@ -125,7 +178,7 @@ class VoiceBridgeService : Service() {
         encoderThread = OpusEncoderThread(encodedQueue).also { it.start() }
 
         capturing = true
-        wakeLock?.acquire(4 * 60 * 60 * 1000L)  // up to 4 h
+        wakeLock?.acquire(4 * 60 * 60 * 1000L)
         notify("Capturing call${if (number.isNotBlank()) " — $number" else ""}")
         Log.i(TAG, "Capture started (number=$number)")
     }
@@ -138,6 +191,8 @@ class VoiceBridgeService : Service() {
         encoderThread = null
         NativeBridge.destroyEncoder()
         capturing = false
+        callStartMs = 0L
+        activeCallNumber = ""
         if (wakeLock?.isHeld == true) wakeLock?.release()
         notify("Ready — waiting for call")
         Log.i(TAG, "Capture stopped")
@@ -160,7 +215,6 @@ class VoiceBridgeService : Service() {
 
     private fun hangup() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            // endCall() deprecated API 28 but no public replacement for non-default-dialer apps
             @Suppress("DEPRECATION")
             (getSystemService(Context.TELECOM_SERVICE) as TelecomManager).endCall()
         }

@@ -92,6 +92,8 @@ class UsbAccessoryManager(private val ctx: Context) {
         }, "UsbControlReader").also { it.isDaemon = true }.start()
     }
 
+    val isConnected: Boolean get() = output != null
+
     fun getOutputStream(): FileOutputStream? = output
 
     fun onDisconnect() {
